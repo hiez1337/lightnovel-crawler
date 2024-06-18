@@ -99,48 +99,13 @@ class RanobeLibCrawler(SearchableBrowserTemplate):
     def parse_chapter_list(
         self, soup: BeautifulSoup
     ) -> Generator[Union[Chapter, Volume], None, None]:
-        self.novel_id = digit_regex.search(self.novel_url).group(1)
-        chapter_list_link = urljoin(self.home_url, f"/chapters/{self.novel_id}/")
-        soup = self.get_soup(chapter_list_link)
-        script = soup.find(
-            lambda tag: isinstance(tag, Tag)
-            and tag.name == "script"
-            and tag.text.startswith("window.__DATA__")
-        )
-        assert isinstance(script, Tag)
-        data = js2py.eval_js(script.text).to_dict()
-        assert isinstance(data, dict)
-
-        pages_count = data["pages_count"]
-        logger.info("Total pages: %d", pages_count)
-
-        futures = []
-        page_soups = [soup]
-        for i in range(2, pages_count + 1):
-            chapter_page_url = chapter_list_link.strip("/") + ("/page/%d" % i)
-            f = self.executor.submit(self.get_soup, chapter_page_url)
-            futures.append(f)
-        page_soups += [f.result() for f in futures]
-
-        _i = 0
-        for soup in reversed(page_soups):
-            script = soup.find(
-                lambda tag: isinstance(tag, Tag)
-                and tag.name == "script"
-                and tag.text.startswith("window.__DATA__")
+        chapters = soup.select('.chapters-scroll-list a[rel="chapter"]')
+        for i, chapter in enumerate(chapters):
+            yield Chapter(
+                id=i,
+                title=chapter.select_one('.title').text.strip(),
+                url=self.absolute_url(chapter['href']),
             )
-            assert isinstance(script, Tag)
-
-            data = js2py.eval_js(script.text).to_dict()
-            assert isinstance(data, dict)
-
-            for chapter in reversed(data["chapters"]):
-                _i += 1
-                yield Chapter(
-                    id=_i,
-                    title=chapter["title"],
-                    url=self.absolute_url(chapter["link"]),
-                )
 
     def visit_chapter_page_in_browser(self, chapter: Chapter) -> None:
         self.visit(chapter.url)
